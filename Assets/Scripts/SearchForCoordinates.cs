@@ -8,9 +8,29 @@ using UnityEngine;
 
 public class SearchForCoordinates : MonoBehaviour
 {
-	public TextAsset report;
-	public TextAsset listForReport;
+	[HideInInspector]
+	[SerializeField] private AudioSource aus = null;
+
+	[Tooltip("We will search for coordinates for the names from Geographical Names List here")]
+	[SerializeField] private TextAsset textWithNamesAndCoordinates;
+
+	[Tooltip("A list of geographic names, separated by '|'")]
+	[SerializeField] private TextAsset geographicalNamesList;
+	[Space]
+	[Header("Searching through the report will take some time!")]
+
+	[Tooltip("Will prepare a list of rows taken from the Text With Names And Coordinates. This may take some time!")]
+	[SerializeField] private bool doPrepareList = false;
+
+	[Tooltip("Will search for duplicates in the Prepared List")]
+	[SerializeField] private bool doCleanUpList = false;
+
+	[Tooltip("Prepare the final KML file")]
+	[SerializeField] private bool doPrepareKML = false;
+	[Space]
+	[Header("Files generated during the process:")]
 	public TextAsset preparedList;
+	public TextAsset cleanedUpList;
 	private List<string> readyListFromReport = new List<string>();
 	private List<string> recordsForGoogleEarth = new List<string>();
 
@@ -31,39 +51,32 @@ public class SearchForCoordinates : MonoBehaviour
 	private const string pointStart = "<Point>";
 	private const string pointEnd = "</Point>";
 
-	private const string pathToResources = "Assets/Resources/";
-	private const string outputFolderName = "/Output/";
+	private const string pathToAssets = "Assets";
+	private const string pathToResources = "/Resources/";
+	private const string outputFolderPath = "/Output/";
 	private const string listName = "list.txt";
 	private const string reportName = "report.txt";
 	private const string listForReportName = "listForReport.txt";
 	private const string preparedListName = "preparedList.txt";
-	private const string namesWithCoords = "namesWithCoordinates.txt";
+	private const string namesWithCoords = "namesWithCoordinates.kml";
+	private const string cleanedListName = "cleanedUpList.txt";
 	private const string newLineStringWithReturn = "\r\n";
 	private const string newLineString = "\n";
 	private const string allParagraphEnds = "\n|\r|\r\n";
 	private const char spaceChar = ' ';
-	private string dataPath = Application.dataPath;
+	private string dataPath;
+
+	private void Awake()
+	{
+		dataPath = Application.dataPath;
+	}
 
 	void Start()
 	{
-		if (report == null)
-		{
-			report = (TextAsset)AssetDatabase.LoadAssetAtPath(pathToResources + reportName, typeof(TextAsset));
-		}
-		if (listForReport == null)
-		{
-			listForReport = (TextAsset)AssetDatabase.LoadAssetAtPath(pathToResources + listForReportName, typeof(TextAsset));
-		}
-		if (preparedList == null)
-		{
-			preparedList = (TextAsset)AssetDatabase.LoadAssetAtPath(pathToResources + preparedListName, typeof(TextAsset));
-		}
-
-		/***** Uncomment those for certain actions to process on Start: *****/
 		/***** (You can also use context menu) *****/
-		PrepareList();
-		CleanUpPreparedList();
-		PrepareKML();
+		if (doPrepareList) PrepareList();
+		if (doCleanUpList) CleanUpPreparedList();
+		if (doPrepareKML) PrepareKML();
 	}
 
 	private char[] splitBy = new char[] { '|' };
@@ -71,8 +84,10 @@ public class SearchForCoordinates : MonoBehaviour
 	[ContextMenu("Prepare List")]
 	private void PrepareList()
 	{
-		string[] names = listForReport.text.Split(splitBy, StringSplitOptions.RemoveEmptyEntries);
-		string[] reportRows = Regex.Split(report.text, newLineStringWithReturn);
+		CheckDataPath();
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Starting List Preparation"));
+		string[] names = geographicalNamesList.text.Split(splitBy, StringSplitOptions.RemoveEmptyEntries);
+		string[] reportRows = Regex.Split(textWithNamesAndCoordinates.text, newLineStringWithReturn);
 		foreach (var row in reportRows)
 		{
 			foreach (var n in names)
@@ -84,12 +99,21 @@ public class SearchForCoordinates : MonoBehaviour
 			}
 		}
 		string joinedString = string.Join(newLineString, readyListFromReport);
-		File.WriteAllText(dataPath + preparedListName, joinedString);
+		File.WriteAllText(dataPath + outputFolderPath + preparedListName, joinedString);
+		AssignPreparedList();
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Written to: " + preparedListName));
+		PlayEndSound();
 	}
 
 	[ContextMenu("Clean Up List")]
 	private void CleanUpPreparedList()
 	{
+		CheckDataPath();
+		if (preparedList == null)
+		{
+			AssignPreparedList();
+		}
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Starting List Clean-up"));
 		string[] rows = Regex.Split(preparedList.text, newLineString);
 		List<string> newReportList = new List<string>();
 		foreach (var row in rows)
@@ -119,13 +143,22 @@ public class SearchForCoordinates : MonoBehaviour
 			}
 		}
 		string joinedString = string.Join(newLineString, newReportList);
-		File.WriteAllText(dataPath + outputFolderName + "cleanedUpList.txt", joinedString);
+		File.WriteAllText(dataPath + outputFolderPath + cleanedListName, joinedString);
+		AssignCleanUpList();
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Written to: " + cleanedListName));
+		PlayEndSound();
 	}
 
 	[ContextMenu("Prepare KML")]
 	public void PrepareKML()
 	{
-		var reportLines = Regex.Split(preparedList.text, allParagraphEnds);
+		CheckDataPath();
+		if (cleanedUpList == null)
+		{
+			AssignCleanUpList();
+		}
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Starting KML preparation"));
+		var reportLines = Regex.Split(cleanedUpList.text, allParagraphEnds);
 
 		foreach (var line in reportLines)
 		{
@@ -146,6 +179,10 @@ public class SearchForCoordinates : MonoBehaviour
 						if (split[i] != "")
 						{
 							Debug.Log(string.Format("<color=green><b>{0}</b></color>", "now working on: " + split[i]));
+							if (Regex.IsMatch(split[i], "[0-9]WS"))
+							{
+								Debug.Log(string.Format("<color=red><b>{0}</b></color>", "should fix " + split[i]));
+							}
 							if (split[i].Contains("S"))
 							{
 								string[] southNumbers = Regex.Split(split[i], "°|'S");
@@ -213,6 +250,36 @@ public class SearchForCoordinates : MonoBehaviour
 		joinedString += newLineString + documentEnd;
 		joinedString += newLineString + kmlEnd;
 
-		File.WriteAllText(dataPath + namesWithCoords, joinedString);
+		File.WriteAllText(dataPath + outputFolderPath + namesWithCoords, joinedString);
+		Debug.Log(string.Format("<color=green><b>{0}</b></color>", "Written to: " + namesWithCoords));
+		PlayEndSound();
+		EditorApplication.isPlaying = false;
+	}
+
+	private void CheckDataPath()
+	{
+		if (dataPath == string.Empty)
+		{
+			dataPath = Application.dataPath;
+		}
+	}
+
+	private void AssignCleanUpList()
+	{
+		string fullPath = pathToAssets + outputFolderPath + cleanedListName;
+		cleanedUpList = AssetDatabase.LoadAssetAtPath(fullPath, typeof(TextAsset)) as TextAsset;
+		AssetDatabase.ImportAsset(fullPath);
+	}
+
+	private void AssignPreparedList()
+	{
+		string fullPath = pathToAssets + outputFolderPath + preparedListName;
+		preparedList = AssetDatabase.LoadAssetAtPath(fullPath, typeof(TextAsset)) as TextAsset;
+		AssetDatabase.ImportAsset(fullPath);
+	}
+
+	private void PlayEndSound()
+	{
+		aus.Play();
 	}
 }
