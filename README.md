@@ -1,2 +1,2 @@
 # KML-Preparation
- Searching a document for coordinates and putting up a Google Earth KML file with names and coords
+Searching a document for coordinates given list of key names, and creating a Google Earth KML file
